@@ -1,0 +1,144 @@
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.1
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      project-network:
+        ipv4_address: 172.28.0.2
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.1
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://172.28.0.3:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    networks:
+      project-network:
+        ipv4_address: 172.28.0.3
+
+  kafka-init:
+    image: confluentinc/cp-kafka:7.4.1
+    depends_on:
+      - kafka
+    command: >
+      bash -c "
+        cub kafka-ready -b 172.28.0.3:9092 1 30 &&
+        kafka-topics --bootstrap-server 172.28.0.3:9092 --create --if-not-exists --topic traffic_raw --partitions 4 --replication-factor 1 &&
+        kafka-topics --bootstrap-server 172.28.0.3:9092 --create --if-not-exists --topic critical_traffic --partitions 4 --replication-factor 1 &&
+        kafka-topics --bootstrap-server 172.28.0.3:9092 --alter --topic traffic_raw --partitions 4 &&
+        kafka-topics --bootstrap-server 172.28.0.3:9092 --alter --topic critical_traffic --partitions 4 &&
+        kafka-topics --bootstrap-server 172.28.0.3:9092 --describe --topic traffic_raw &&
+        kafka-topics --bootstrap-server 172.28.0.3:9092 --describe --topic critical_traffic
+      "
+    networks:
+      project-network:
+        ipv4_address: 172.28.0.9
+
+  postgres:
+    image: postgres:16
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=traffic
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      project-network:
+        ipv4_address: 172.28.0.4
+
+  spark-master:
+    image: bde2020/spark-master:3.1.1-hadoop3.2
+    environment:
+      - SPARK_MODE=master
+    ports:
+      - "7077:7077"
+      - "8081:8080"
+    volumes:
+      - ./spark:/opt/spark-apps
+    networks:
+      project-network:
+        ipv4_address: 172.28.0.5
+
+  spark-worker:
+    image: bde2020/spark-worker:3.1.1-hadoop3.2
+    depends_on:
+      - spark-master
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+    ports:
+      - "8083:8081"
+    networks:
+      project-network:
+        ipv4_address: 172.28.0.6
+
+  airflow:
+    image: apache/airflow:2.8.4
+    depends_on:
+      - postgres
+    environment:
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@172.28.0.4:5432/airflow
+      - AIRFLOW__WEBSERVER__SECRET_KEY=dev
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__WEBSERVER__DEFAULT_UI_TIMEZONE=UTC
+      - TRAFFIC_DB_URL=postgresql+psycopg2://postgres:postgres@172.28.0.4:5432/traffic
+      - AIRFLOW_UID=50000
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./reports:/opt/airflow/reports
+      - ./airflow/requirements.txt:/opt/airflow/requirements.txt
+    ports:
+      - "8085:8080"
+    command: >
+      bash -c "pip install -r /opt/airflow/requirements.txt && airflow db init && (airflow users create --username airflow --password airflow --firstname Air --lastname Flow --role Admin --email airflow@example.com || true) && exec airflow webserver"
+    restart: unless-stopped
+    networks:
+      project-network:
+        ipv4_address: 172.28.0.7
+
+  airflow-scheduler:
+    image: apache/airflow:2.8.4
+    depends_on:
+      - airflow
+    environment:
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@172.28.0.4:5432/airflow
+      - AIRFLOW__WEBSERVER__SECRET_KEY=dev
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__WEBSERVER__DEFAULT_UI_TIMEZONE=UTC
+      - TRAFFIC_DB_URL=postgresql+psycopg2://postgres:postgres@172.28.0.4:5432/traffic
+      - AIRFLOW_UID=50000
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./reports:/opt/airflow/reports
+      - ./airflow/requirements.txt:/opt/airflow/requirements.txt
+    command: >
+      bash -c "pip install -r /opt/airflow/requirements.txt && exec airflow scheduler"
+    restart: unless-stopped
+    networks:
+      project-network:
+        ipv4_address: 172.28.0.8
+
+networks:
+  project-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

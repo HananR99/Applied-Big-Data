@@ -1,0 +1,7 @@
+flowchart LR
+  A[Traffic Sensors\n4 Junctions] -->|JSON Events| B[Kafka Topic: traffic_raw]
+  B --> C[Spark Structured Streaming\n5-min Tumbling Window]
+  C --> D[(Postgres\ntraffic_raw, traffic_window_agg)]
+  C -->|Alerts avg_speed < 10| E[Kafka Topic: critical_traffic]
+  D --> F[Airflow Nightly DAG]
+  F --> G[PDF Report\nPeak Traffic Hour\nIntervention List]
