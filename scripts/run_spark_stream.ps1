@@ -10,9 +10,10 @@ $postgresIp = $(docker inspect -f "{{range .NetworkSettings.Networks}}{{.IPAddre
 Write-Host "Kafka broker: ${kafkaIp}:9092"
 Write-Host "Postgres JDBC: jdbc:postgresql://${postgresIp}:5432/traffic"
 
-docker exec -it $masterId `
+docker exec -it `
   -e KAFKA_BOOTSTRAP="${kafkaIp}:9092" `
   -e POSTGRES_JDBC_URL="jdbc:postgresql://${postgresIp}:5432/traffic" `
+  $masterId `
   /spark/bin/spark-submit `
   --master spark://spark-master:7077 `
   --packages $packages `
