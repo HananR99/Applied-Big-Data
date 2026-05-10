@@ -15,6 +15,7 @@ REPORT_DIR = "/opt/airflow/reports"
 def generate_report(execution_date=None):
     # Import heavy deps inside task to avoid DAG import timeout
     import pandas as pd
+    import numpy as np
     import matplotlib.pyplot as plt
     
     engine = create_engine(POSTGRES_URL)
@@ -102,21 +103,43 @@ def generate_report(execution_date=None):
     grid = fig.add_gridspec(2, 1, height_ratios=[2, 1])
 
     ax_chart = fig.add_subplot(grid[0])
-    for sensor_id, sensor_df in hourly_df.groupby("sensor_id"):
-        ax_chart.plot(
-            sensor_df["hour_bucket"],
-            sensor_df["total_vehicles"],
-            marker="o",
-            linewidth=2,
+    hourly_plot_df = (
+        hourly_df.pivot_table(
+            index="hour_bucket",
+            columns="sensor_id",
+            values="total_vehicles",
+            aggfunc="sum",
+        )
+        .fillna(0)
+        .sort_index()
+    )
+
+    x = np.arange(len(hourly_plot_df))
+    sensor_ids = list(hourly_plot_df.columns)
+    group_width = 0.8
+    bar_width = group_width / max(len(sensor_ids), 1)
+    start = -((group_width - bar_width) / 2)
+
+    for idx, sensor_id in enumerate(sensor_ids):
+        ax_chart.bar(
+            x + start + idx * bar_width,
+            hourly_plot_df[sensor_id].values,
+            width=bar_width,
             label=sensor_id,
         )
+
+    hour_labels = hourly_plot_df.index.strftime("%Y-%m-%d %H:%M")
+    step = max(1, (len(hour_labels) + 11) // 12)
+    tick_idx = x[::step]
+    tick_labels = hour_labels[::step]
+    ax_chart.set_xticks(tick_idx)
+    ax_chart.set_xticklabels(tick_labels, rotation=30, ha="right")
 
     ax_chart.set_title("Traffic Volume vs. Time of Day (Last 24 Hours)")
     ax_chart.set_xlabel("Time of day")
     ax_chart.set_ylabel("Vehicle volume")
-    ax_chart.grid(True, alpha=0.3)
+    ax_chart.grid(True, axis="y", alpha=0.3)
     ax_chart.legend(title="Junction")
-    fig.autofmt_xdate(rotation=30)
 
     table_df = peak_df.copy()
     table_df["hour_bucket"] = table_df["hour_bucket"].dt.strftime("%Y-%m-%d %H:%M")
