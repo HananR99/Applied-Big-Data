@@ -1,0 +1,5 @@
+sensor_id,hour_bucket,total_vehicles,avg_speed,congestion_score,congestion_rank,intervention_required,recommendation
+junction_01,2026-05-09 17:00:00,22599,32.19966824644547,701.8395291229347,3,Monitor,Continue monitoring
+junction_02,2026-05-09 17:00:00,22659,32.05176935229067,706.9500516788354,1,Yes,Priority police deployment
+junction_03,2026-05-09 17:00:00,22315,32.695727848101235,682.5050692760741,4,Monitor,Continue monitoring
+junction_04,2026-05-09 17:00:00,22513,31.949794303797482,704.6367743695976,2,Monitor,Continue monitoring
